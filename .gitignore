@@ -25,4 +25,7 @@ wheels/
 data/
 downloads/
 logs/
+
+# macOS
+.DS_Store
 EOL
