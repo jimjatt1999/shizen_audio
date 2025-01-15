@@ -1,0 +1,10 @@
+faster-whisper
+yt-dlp
+pydub
+PyQt6
+ffmpeg-python
+feedparser
+requests
+PyQtWebEngine
+PyQt6-WebEngine
+ollama
