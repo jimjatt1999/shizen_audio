@@ -42,9 +42,9 @@ Next, install Ollama:
 2. Follow installation instructions for your OS
 3. Pull the language model:
 ```bash
-ollama pull llama2
+ollama pull llama3.2:8b 
 ```
-
+note any other models would work, llama3.2:8b is lightweight 
 ### Setting up the Project
 
 Create and activate a virtual environment:
