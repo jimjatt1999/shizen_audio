@@ -93,6 +93,10 @@ Key packages:
 - yt-dlp - YouTube downloads
 - Ollama - AI language analysis
 
+## Planned or future improvement
+
+- Text, document, articles support, with synthetic audio generation
+- improve upload loading 
 ## Support
 
 For issues or questions, please open a GitHub issue.
