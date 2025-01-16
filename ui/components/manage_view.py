@@ -5,8 +5,13 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                            QMessageBox)
 from PyQt6.QtCore import Qt
 from .content_player import ContentPlayer
+from PyQt6.QtCore import Qt, pyqtSignal  # Add pyqtSignal here
+from PyQt6.QtWidgets import QApplication  # Add this import
+
+
 
 class ManageSourcesView(QWidget):
+    sourcesChanged = pyqtSignal()  # Add this signal
     def __init__(self, review_system):
         super().__init__()
         self.review_system = review_system
@@ -279,14 +284,30 @@ class ManageSourcesView(QWidget):
         
         if reply == QMessageBox.StandardButton.Yes:
             try:
+                # Delete the source
                 self.review_system.delete_source(source['audio_path'])
+                # Refresh the sources list
                 self.refresh_sources()
+                # Get the main window
+                main_window = self.window()
                 
+                # Force immediate UI update
+                QApplication.processEvents()
+                
+                # Show success message
                 QMessageBox.information(
                     self,
                     "Success",
                     "Source and associated cards deleted successfully!"
                 )
+                # Signal that sources have changed
+                self.sourcesChanged.emit()
+                QApplication.processEvents()
+                # Switch to review view and refresh it
+                if hasattr(main_window, 'switch_view'):
+                    main_window.switch_view("Review")
+                    main_window.refresh_all_views()
+                    QApplication.processEvents()
                 
             except Exception as e:
                 QMessageBox.critical(

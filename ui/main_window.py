@@ -2,7 +2,7 @@
 
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, 
                            QLabel, QStackedWidget, QListWidget, QListWidgetItem, QScrollArea, QSplitter,
-                           QMessageBox, QInputDialog, QDialog, QProgressBar)
+                           QMessageBox, QInputDialog, QDialog, QProgressBar, QApplication)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtGui import QColor, QPixmap
@@ -12,6 +12,9 @@ from .components.stats_view import StatsView
 from audio_processors.media_processor import MediaProcessor
 import requests
 from pathlib import Path
+from .components.manage_view import ManageSourcesView
+from .components.upload_view import UploadView
+
 
 
 class ProcessingThread(QThread):
@@ -125,7 +128,7 @@ class MainWindow(QMainWindow):
         
         # Create and add settings view
         self.settings_view = Settings(self.review_system)
-        self.settings_view.settingsChanged.connect(self.refresh_review_view)
+        self.settings_view.settingsChanged.connect(self.refresh_all_views)
         self.content_stack.addWidget(self.settings_view)           # Index 6
 
         main_layout.addWidget(self.content_stack)
@@ -386,27 +389,33 @@ class MainWindow(QMainWindow):
 
     def create_upload_view(self):
         """Create the upload view"""
-        from .components.upload_view import UploadView
-        return UploadView(self.review_system, self.media_processor)
+        print("Creating upload view")  # Debug print
+        upload_view = UploadView(self.review_system, self.media_processor)
+        print("Connecting upload signals")  # Debug print
+        upload_view.uploadComplete.connect(self.handle_upload_complete)
+        upload_view.uploadFailed.connect(self.handle_upload_error)
+        return upload_view
 
     def handle_upload_complete(self, result: dict):
         """Handle successful upload"""
         try:
             # Add to review system
-            self.review_system.add_source(result, result['segments'])
+            self.review_system.add_source(result, result.get('segments', []))
             
             # Show success message
             QMessageBox.information(
                 self,
                 "Upload Complete",
                 f"Successfully processed {result['title']}\n"
-                f"Added {len(result['segments'])} segments for review."
+                f"Added {len(result.get('segments', []))} segments for review."
             )
 
             # Switch to review view
             self.switch_view("Review")
-            self.update_stats()
-            self.load_due_cards()
+            
+            # Force complete refresh of the review view
+            self.refresh_all_views()
+            QApplication.processEvents()
 
         except Exception as e:
             self.handle_upload_error(str(e))
@@ -704,8 +713,10 @@ class MainWindow(QMainWindow):
 
     def create_manage_view(self):
         """Create the manage view"""
-        from .components.manage_view import ManageSourcesView
-        return ManageSourcesView(self.review_system)
+        manage_view = ManageSourcesView(self.review_system)
+        # Connect the signal to refresh review view
+        manage_view.sourcesChanged.connect(self.refresh_all_views)
+        return manage_view
     
     def process_youtube(self):
         """Process YouTube URL"""
@@ -951,28 +962,23 @@ class MainWindow(QMainWindow):
 
             # Get stats
             stats = self.review_system.get_stats()
+            print(f"Loading cards with stats: {stats}")  # Debug print
             
-            # Check if we've reached the daily new cards limit
-            new_cards_today = self.review_system.stats.get('today_reviews', 0)
-            daily_limit = self.review_system.settings.get('daily_new_cards', 20)
-            
-            # Show done message if:
-            # 1. No cards available, or
-            # 2. Daily limit reached and no due cards
-            if ((stats['due'] == 0 and stats['new'] == 0) or 
-                (new_cards_today >= daily_limit and stats['due'] == 0)):
+            # Always show done message if no cards
+            if stats['total'] == 0:
                 self.show_done_message(stats)
                 return
 
-            # Get limited number of cards
+            # Get due items
             due_items = self.review_system.get_due_items()
+            print(f"Got {len(due_items)} due items")  # Debug print
             
             if not due_items:
                 self.show_done_message(stats)
                 return
                 
             for item in due_items:
-                card = AudioCard(item, item['audio_path'], self.review_system)  # Pass review_system
+                card = AudioCard(item, item['audio_path'], self.review_system)
                 card.reviewed.connect(self.handle_review)
                 card.deleted.connect(lambda cid: self.handle_card_action(cid, 'delete'))
                 card.skipped.connect(lambda cid: self.handle_card_action(cid, 'skip'))
@@ -990,27 +996,23 @@ class MainWindow(QMainWindow):
         done_layout.setContentsMargins(32, 32, 32, 32)
         done_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Checkmark icon
-        done_icon = QLabel("✅")
-        done_icon.setStyleSheet("""
+        # Different icon and message based on if there are any cards at all
+        if stats['total'] == 0:
+            # Show "Get Started" message
+            icon = QLabel("📚")  # Book emoji
+            message = "No cards yet!"
+            sub_message = "Add some content to start learning"
+        else:
+            # Show completion message
+            icon = QLabel("✅")  # Checkmark emoji
+            message = "All done for today!"
+            sub_message = "Great job! Come back tomorrow for more cards."
+
+        icon.setStyleSheet("""
             font-size: 48px;
             margin-bottom: 16px;
         """)
-        done_layout.addWidget(done_icon, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        # Message based on context
-        if stats['due'] == 0 and stats['new'] == 0:
-            message = "All done for today!"
-            sub_message = "Great job! Come back tomorrow for more cards."
-        else:
-            new_cards_today = self.review_system.stats.get('today_reviews', 0)
-            daily_limit = self.review_system.settings.get('daily_new_cards', 20)
-            if new_cards_today >= daily_limit:
-                message = "Daily limit reached!"
-                sub_message = f"You've studied {daily_limit} new cards today."
-            else:
-                message = "Taking a break!"
-                sub_message = "Come back later for more cards."
+        done_layout.addWidget(icon, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # Main message
         done_message = QLabel(message)
@@ -1029,16 +1031,6 @@ class MainWindow(QMainWindow):
             font-size: 14px;
         """)
         done_layout.addWidget(sub_message_label, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        # Stats summary
-        if stats['total'] > 0:
-            stats_message = QLabel(f"Total cards: {stats['total']}")
-            stats_message.setStyleSheet("""
-                color: #6b7280;
-                font-size: 14px;
-                margin-top: 8px;
-            """)
-            done_layout.addWidget(stats_message, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # Container styling
         done_widget.setStyleSheet("""
@@ -1060,13 +1052,21 @@ class MainWindow(QMainWindow):
         try:
             if action == 'delete':
                 self.review_system.delete_card(card_id)
+                # Force immediate refresh of the review feed
+                self.refresh_all_views()
+                # If no cards left, show done message
+                stats = self.review_system.get_stats()
+                if stats['total'] == 0:
+                    self.show_done_message(stats)
             elif action == 'skip':
                 self.review_system.skip_card(card_id)
+                self.refresh_all_views()
             elif action == 'edit':
                 self.review_system.edit_card_text(card_id, data)
+                self.refresh_all_views()
             
+            # Update stats
             self.update_stats()
-            self.load_due_cards()
             
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to {action} card: {str(e)}")
@@ -1086,9 +1086,12 @@ class MainWindow(QMainWindow):
         for key, label in self.stats_labels.items():
             label.setText(str(stats[key]))
 
-    def refresh_review_view(self):
-        """Refresh the review view"""
+    def refresh_all_views(self):
+        """Refresh all relevant views"""
         try:
+            print("Refreshing all views...")  # Debug print
+            
+            # Clear existing cards from review layout
             while self.review_layout.count() > 1:
                 item = self.review_layout.takeAt(0)
                 if item.widget():
@@ -1096,12 +1099,44 @@ class MainWindow(QMainWindow):
                         item.widget().cleanup()
                     item.widget().deleteLater()
             
+            # Force UI update
+            QApplication.processEvents()
+            
+            # Update stats
             self.update_stats()
+            QApplication.processEvents()
+            
+            # Get current stats
+            stats = self.review_system.get_stats()
+            print(f"Current stats after refresh: {stats}")  # Debug print
+            
+            # If no cards, show done message
+            if stats['total'] == 0:
+                self.show_done_message(stats)
+                QApplication.processEvents()
+                return
+            
+            # Reload due cards
             self.load_due_cards()
+            QApplication.processEvents()
+            
+            # Update stats view if it exists
+            stats_view = self.content_stack.widget(4)  # Index 4 is Stats view
+            if stats_view and hasattr(stats_view, 'update_stats'):
+                stats_view.update_stats()
+                QApplication.processEvents()
+            
+            # Force layout update
+            self.review_layout.parentWidget().update()
+            QApplication.processEvents()
             
         except Exception as e:
-            print(f"Error refreshing review view: {e}")
-
+            print(f"Error in refresh_all_views: {e}")
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to refresh views: {str(e)}"
+            )
 
     def closeEvent(self, event):
         """Handle application closure"""

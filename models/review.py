@@ -102,7 +102,7 @@ class ReviewSystem:
             # Update statistics
             today = datetime.now().date().isoformat()
             
-            # Initialize ratings if needed
+            # Initialize today's stats if needed
             if today not in self.stats['review_history']:
                 self.stats['review_history'][today] = {
                     'total': 0,
@@ -111,8 +111,15 @@ class ReviewSystem:
                         'hard': 0,
                         'good': 0,
                         'easy': 0
-                    }
+                    },
+                    'new_cards_reviewed': 0
                 }
+
+            # Track new cards - only count if response is not "again"
+            if item.get('reviews', 0) == 0 and response != 'again':
+                self.stats['review_history'][today]['new_cards_reviewed'] = \
+                    self.stats['review_history'][today].get('new_cards_reviewed', 0) + 1
+                print(f"New card counted towards daily limit. Response: {response}")  # Debug print
 
             self.stats['today_reviews'] += 1
             self.stats['review_history'][today]['total'] += 1
@@ -126,23 +133,32 @@ class ReviewSystem:
             if response == 'again':
                 new_interval = 1
                 new_ease = max(1.3, current_ease - 0.2)
-            elif response == 'hard':
-                new_interval = max(1, current_interval * current_ease * 0.8)
-                new_ease = max(1.3, current_ease - 0.15)
-            elif response == 'good':
-                new_interval = max(1, current_interval * current_ease)
-                new_ease = current_ease
-            else:  # easy
-                new_interval = max(2, current_interval * current_ease * 1.3)
-                new_ease = min(2.5, current_ease + 0.1)
+                # Don't increment reviews for "again" on new cards
+                if item.get('reviews', 0) == 0:
+                    new_reviews = 0
+                else:
+                    new_reviews = item.get('reviews', 0) + 1
+            else:
+                if response == 'hard':
+                    new_interval = max(1, current_interval * current_ease * 0.8)
+                    new_ease = max(1.3, current_ease - 0.15)
+                elif response == 'good':
+                    new_interval = max(1, current_interval * current_ease)
+                    new_ease = current_ease
+                else:  # easy
+                    new_interval = max(2, current_interval * current_ease * 1.3)
+                    new_ease = min(2.5, current_ease + 0.1)
+                new_reviews = item.get('reviews', 0) + 1
 
             # Update card
             item['interval'] = new_interval
             item['ease'] = new_ease
             item['next_review'] = datetime.now() + timedelta(days=new_interval)
-            item['reviews'] = item.get('reviews', 0) + 1
+            item['reviews'] = new_reviews
+            if response != 'again' or item.get('reviews', 0) > 0:
+                item['last_review_date'] = today
 
-            print(f"Updated card: interval={new_interval}, ease={new_ease}")
+            print(f"Updated card: interval={new_interval}, ease={new_ease}, reviews={new_reviews}")
             
             # Save changes
             self.save_state()
@@ -371,39 +387,50 @@ class ReviewSystem:
             print(f"Error updating settings: {e}")
             raise Exception(f"Failed to update settings: {str(e)}")
 
-    def get_due_items(self, limit: int = None) -> List[dict]:
+    def get_due_items(self, limit: int = None):
         """Get items due for review"""
         try:
             now = datetime.now()
+            today = now.date().isoformat()
             cards_per_session = self.settings.get('cards_per_session', 3)
             
-            # Get all due and new cards
-            due_cards = [item for item in self.items 
-                        if item['reviews'] > 0 and item['next_review'] <= now]
-            new_cards = [item for item in self.items if item['reviews'] == 0]
+            # Get new cards studied today from stats
+            new_cards_today = self.stats['review_history'].get(today, {}).get('new_cards_reviewed', 0)
+            print(f"New cards studied today: {new_cards_today}")  # Debug print
             
-            # Count new cards studied today
-            new_cards_today = len([i for i in self.items 
-                                 if i.get('reviews', 0) == 1 and 
-                                 i.get('last_review_date') == now.date().isoformat()])
-            
+            # Get daily new cards limit
             new_cards_limit = self.settings.get('daily_new_cards', 20)
-            remaining_new = max(0, new_cards_limit - new_cards_today)
-            
-            # Combine cards
-            items_to_show = due_cards.copy()
-            if remaining_new > 0:
-                items_to_show.extend(new_cards[:remaining_new])
-            
-            # Shuffle and limit by cards_per_session
+            print(f"Daily new cards limit: {new_cards_limit}")  # Debug print
+
+            # If we've reached the daily limit, only show due cards
+            if new_cards_today >= new_cards_limit:
+                print("Daily limit reached, showing only due cards")  # Debug print
+                items_to_show = [item for item in self.items 
+                            if item['reviews'] > 0 and item['next_review'] <= now]
+            else:
+                # Get due and new cards
+                due_cards = [item for item in self.items 
+                            if item['reviews'] > 0 and item['next_review'] <= now]
+                new_cards = [item for item in self.items if item['reviews'] == 0]
+                
+                # Calculate remaining new cards allowed
+                remaining_new = new_cards_limit - new_cards_today
+                print(f"Remaining new cards allowed: {remaining_new}")  # Debug print
+                
+                # Combine cards
+                items_to_show = due_cards.copy()
+                if remaining_new > 0:
+                    items_to_show.extend(new_cards[:remaining_new])
+
+            # Shuffle and limit
             import random
             random.shuffle(items_to_show)
             return items_to_show[:cards_per_session]
-            
+                
         except Exception as e:
             print(f"Error getting due items: {e}")
             return []
-        
+    
     def reset_stats(self):
         """Reset all statistics and learning progress"""
         try:
@@ -538,7 +565,11 @@ class ReviewSystem:
             # Reset stats if no items remain
             if len(self.items) == 0:
                 self.reset_stats()
+            else:
+                # Update today's stats
+                self.stats['today_reviews'] = max(0, self.stats.get('today_reviews', 0) - cards_deleted)
             
+            # Delete the audio file
             try:
                 audio_file = Path(audio_path)
                 if audio_file.exists():
@@ -547,17 +578,14 @@ class ReviewSystem:
             except Exception as e:
                 print(f"Warning: Could not delete audio file: {audio_path} - {e}")
             
+            # Save the updated state
             self.save_state()
             print(f"Saved updated state with {len(self.items)} remaining cards")
             
         except Exception as e:
             print(f"Error in delete_source: {e}")
             raise Exception(f"Failed to delete source: {str(e)}")
-            
-        except Exception as e:
-            print(f"Error in delete_source: {e}")
-            raise Exception(f"Failed to delete source: {str(e)}")
-
+        
     def save_state(self):
         """Save current state and settings to disk"""
         try:

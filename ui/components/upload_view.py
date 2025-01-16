@@ -1,7 +1,7 @@
 # ui/components/upload_view.py
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                           QPushButton, QProgressBar, QFileDialog, QMessageBox)
+                           QPushButton, QProgressBar, QFileDialog, QMessageBox, QApplication)
 from PyQt6.QtCore import Qt, pyqtSignal, QThread
 from pathlib import Path
 
@@ -99,6 +99,8 @@ class DropArea(QLabel):
             self.fileDropped.emit(file_path)
 
 class UploadView(QWidget):
+    uploadComplete = pyqtSignal(dict)  # Make sure this signal is defined
+    uploadFailed = pyqtSignal(str)
     def __init__(self, review_system, media_processor):
         super().__init__()
         self.review_system = review_system
@@ -226,7 +228,7 @@ class UploadView(QWidget):
         try:
             # Show progress UI
             self.progress_bar.setVisible(True)
-            self.progress_bar.setRange(0, 0)
+            self.progress_bar.setRange(0, 0)  # Indeterminate progress
             self.status_label.setText("Starting upload...")
 
             # Create and setup worker
@@ -234,7 +236,7 @@ class UploadView(QWidget):
             
             # Connect signals
             worker.progress.connect(self.update_status)
-            worker.finished.connect(self.handle_upload_complete)
+            worker.finished.connect(self.handle_upload_complete)  # This will emit uploadComplete
             worker.error.connect(self.handle_upload_error)
             
             # Store worker reference
@@ -253,9 +255,6 @@ class UploadView(QWidget):
     def handle_upload_complete(self, result: dict):
         """Handle successful upload"""
         try:
-            # Add to review system
-            self.review_system.add_source(result, result.get('segments', []))
-            
             # Update UI
             self.progress_bar.setRange(0, 100)
             self.progress_bar.setValue(100)
@@ -264,13 +263,8 @@ class UploadView(QWidget):
             # Add to recent uploads
             self.add_recent_upload(result['title'])
             
-            # Show success message
-            QMessageBox.information(
-                self,
-                "Upload Complete",
-                f"Successfully processed {result['title']}\n"
-                f"Added {len(result.get('segments', []))} segments for review."
-            )
+            # Emit signal for main window to handle
+            self.uploadComplete.emit(result)
 
             # Clean up worker
             worker = self.sender()
