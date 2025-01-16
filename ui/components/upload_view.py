@@ -1,9 +1,50 @@
-# Create NEW FILE: ui/components/upload_view.py
+# ui/components/upload_view.py
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                            QPushButton, QProgressBar, QFileDialog, QMessageBox)
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QThread
 from pathlib import Path
+
+class UploadWorker(QThread):
+    progress = pyqtSignal(str)
+    finished = pyqtSignal(dict)
+    error = pyqtSignal(str)
+    
+    def __init__(self, media_processor, file_path):
+        super().__init__()
+        self.media_processor = media_processor
+        self.file_path = file_path
+        self.is_running = True
+
+    def run(self):
+        try:
+            if not self.is_running:
+                return
+
+            self.progress.emit("Starting processing...")
+            path = Path(self.file_path)
+            
+            if path.suffix.lower() in ['.mp4', '.mov', '.mkv']:
+                self.progress.emit("Converting video to audio...")
+                
+            result = self.media_processor.process_upload(path)
+            
+            if not self.is_running:
+                return
+                
+            self.progress.emit("Processing complete!")
+            self.finished.emit(result)
+            
+        except Exception as e:
+            if self.is_running:
+                self.error.emit(str(e))
+
+    def stop(self):
+        self.is_running = False
+
+    def __del__(self):
+        self.stop()
+        self.wait()
 
 class DropArea(QLabel):
     fileDropped = pyqtSignal(str)
@@ -62,6 +103,7 @@ class UploadView(QWidget):
         super().__init__()
         self.review_system = review_system
         self.media_processor = media_processor
+        self.upload_workers = []
         self.setup_ui()
 
     def setup_ui(self):
@@ -134,7 +176,7 @@ class UploadView(QWidget):
         formats.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(formats)
 
-        # Recent uploads list (optional)
+        # Recent uploads list
         self.setup_recent_uploads()
 
         layout.addStretch()
@@ -180,21 +222,41 @@ class UploadView(QWidget):
                 item.widget().deleteLater()
 
     def process_file(self, file_path: str):
-        """Process uploaded file"""
+        """Process uploaded file in background"""
         try:
+            # Show progress UI
             self.progress_bar.setVisible(True)
-            self.progress_bar.setRange(0, 0)  # Indeterminate progress
-            self.status_label.setText("Processing file...")
+            self.progress_bar.setRange(0, 0)
+            self.status_label.setText("Starting upload...")
 
-            path = Path(file_path)
-            if path.suffix.lower() in ['.mp4', '.mov', '.mkv']:
-                self.status_label.setText("Converting video to audio...")
+            # Create and setup worker
+            worker = UploadWorker(self.media_processor, file_path)
             
-            result = self.media_processor.process_upload(path)
+            # Connect signals
+            worker.progress.connect(self.update_status)
+            worker.finished.connect(self.handle_upload_complete)
+            worker.error.connect(self.handle_upload_error)
             
+            # Store worker reference
+            self.upload_workers.append(worker)
+            
+            # Start processing
+            worker.start()
+
+        except Exception as e:
+            self.handle_upload_error(str(e))
+
+    def update_status(self, message: str):
+        """Update status message"""
+        self.status_label.setText(message)
+
+    def handle_upload_complete(self, result: dict):
+        """Handle successful upload"""
+        try:
             # Add to review system
             self.review_system.add_source(result, result.get('segments', []))
             
+            # Update UI
             self.progress_bar.setRange(0, 100)
             self.progress_bar.setValue(100)
             self.status_label.setText("Upload complete!")
@@ -210,11 +272,40 @@ class UploadView(QWidget):
                 f"Added {len(result.get('segments', []))} segments for review."
             )
 
+            # Clean up worker
+            worker = self.sender()
+            if worker in self.upload_workers:
+                self.upload_workers.remove(worker)
+                worker.deleteLater()
+
         except Exception as e:
-            self.progress_bar.setVisible(False)
-            self.status_label.setText(f"Error: {str(e)}")
-            QMessageBox.critical(
-                self,
-                "Upload Error",
-                f"Failed to process upload: {str(e)}"
-            )
+            self.handle_upload_error(str(e))
+
+    def handle_upload_error(self, error: str):
+        """Handle upload error"""
+        self.progress_bar.setVisible(False)
+        self.status_label.setText(f"Error: {error}")
+        
+        QMessageBox.critical(
+            self,
+            "Upload Error",
+            f"Failed to process upload: {error}"
+        )
+
+        # Clean up worker
+        worker = self.sender()
+        if worker in self.upload_workers:
+            self.upload_workers.remove(worker)
+            worker.deleteLater()
+
+    def cleanup(self):
+        """Clean up any running workers"""
+        for worker in self.upload_workers:
+            worker.stop()
+            worker.wait()
+        self.upload_workers.clear()
+
+    def closeEvent(self, event):
+        """Handle cleanup when widget is closed"""
+        self.cleanup()
+        super().closeEvent(event)

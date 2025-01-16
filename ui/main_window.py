@@ -426,6 +426,22 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(20)
 
+        # Header
+        header = QHBoxLayout()
+        title = QLabel("YouTube")
+        title.setStyleSheet("""
+            font-size: 24px;
+            font-weight: bold;
+            color: #1f2937;
+        """)
+        header.addWidget(title)
+        layout.addLayout(header)
+
+        # Description
+        desc = QLabel("Process YouTube videos for learning")
+        desc.setStyleSheet("color: #6b7280; font-size: 14px;")
+        layout.addWidget(desc)
+
         # URL input row
         input_layout = QHBoxLayout()
         self.url_input = QLineEdit()
@@ -467,16 +483,35 @@ class MainWindow(QMainWindow):
         input_layout.addWidget(process_btn)
         layout.addLayout(input_layout)
 
-        # Status label
-        self.youtube_status = QLabel()
-        self.youtube_status.setStyleSheet("""
-            color: #666;
-            padding: 12px;
-            background: #f8f8f8;
-            border-radius: 8px;
-            font-size: 14px;
+        # Progress section (same style as upload view)
+        progress_container = QWidget()
+        progress_layout = QVBoxLayout(progress_container)
+        progress_layout.setContentsMargins(0, 0, 0, 0)
+        progress_layout.setSpacing(8)
+
+        self.youtube_progress = QProgressBar()
+        self.youtube_progress.setVisible(False)
+        self.youtube_progress.setStyleSheet("""
+            QProgressBar {
+                border: none;
+                background: #f3f4f6;
+                border-radius: 4px;
+                height: 8px;
+                text-align: center;
+            }
+            QProgressBar::chunk {
+                background: #2196F3;
+                border-radius: 4px;
+            }
         """)
-        layout.addWidget(self.youtube_status)
+
+        self.youtube_status = QLabel()
+        self.youtube_status.setStyleSheet("color: #6b7280; font-size: 13px;")
+        self.youtube_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        progress_layout.addWidget(self.youtube_progress)
+        progress_layout.addWidget(self.youtube_status)
+        layout.addWidget(progress_container)
 
         layout.addStretch()
         return view
@@ -487,6 +522,22 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(view)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(20)
+
+        # Header
+        header = QHBoxLayout()
+        title = QLabel("Podcasts")
+        title.setStyleSheet("""
+            font-size: 24px;
+            font-weight: bold;
+            color: #1f2937;
+        """)
+        header.addWidget(title)
+        layout.addLayout(header)
+
+        # Description
+        desc = QLabel("Search and process podcasts for learning")
+        desc.setStyleSheet("color: #6b7280; font-size: 14px;")
+        layout.addWidget(desc)
 
         # Search row
         search_layout = QHBoxLayout()
@@ -528,6 +579,36 @@ class MainWindow(QMainWindow):
         search_layout.addWidget(self.podcast_search)
         search_layout.addWidget(search_btn)
         layout.addLayout(search_layout)
+
+        # Progress section (same style as upload view)
+        progress_container = QWidget()
+        progress_layout = QVBoxLayout(progress_container)
+        progress_layout.setContentsMargins(0, 0, 0, 0)
+        progress_layout.setSpacing(8)
+
+        self.podcast_progress = QProgressBar()
+        self.podcast_progress.setVisible(False)
+        self.podcast_progress.setStyleSheet("""
+            QProgressBar {
+                border: none;
+                background: #f3f4f6;
+                border-radius: 4px;
+                height: 8px;
+                text-align: center;
+            }
+            QProgressBar::chunk {
+                background: #2196F3;
+                border-radius: 4px;
+            }
+        """)
+
+        self.podcast_status = QLabel()
+        self.podcast_status.setStyleSheet("color: #6b7280; font-size: 13px;")
+        self.podcast_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        progress_layout.addWidget(self.podcast_progress)
+        progress_layout.addWidget(self.podcast_status)
+        layout.addWidget(progress_container)
 
         # Results area
         results_layout = QHBoxLayout()
@@ -590,6 +671,7 @@ class MainWindow(QMainWindow):
         episodes_scroll = QScrollArea()
         episodes_scroll.setWidget(self.episodes_list)
         episodes_scroll.setWidgetResizable(True)
+        episodes_scroll.setMinimumHeight(600)  # Add this line to make it taller
         episodes_scroll.setStyleSheet("""
             QScrollArea {
                 border: 1px solid #e5e7eb;
@@ -613,18 +695,8 @@ class MainWindow(QMainWindow):
         results_layout.addWidget(podcasts_widget)
         results_layout.addWidget(episodes_widget)
         layout.addLayout(results_layout)
-        
-        # Status label
-        self.podcast_status = QLabel()
-        self.podcast_status.setStyleSheet("""
-            color: #666;
-            padding: 12px;
-            background: #f8f8f8;
-            border-radius: 8px;
-            font-size: 14px;
-        """)
-        layout.addWidget(self.podcast_status)
-        
+
+        layout.addStretch()
         return view
 
     def create_stats_view(self):
@@ -640,7 +712,10 @@ class MainWindow(QMainWindow):
         """Process YouTube URL"""
         url = self.url_input.text().strip()
         if url:
-            self.youtube_status.setText("Processing...")
+            self.youtube_progress.setVisible(True)
+            self.youtube_progress.setRange(0, 0)  # Indeterminate progress
+            self.youtube_status.setText("Processing YouTube video...")
+            
             self.processing_thread = ProcessingThread(self.media_processor, url)
             self.processing_thread.finished.connect(self.handle_processing_finished)
             self.processing_thread.error.connect(self.handle_processing_error)
@@ -648,9 +723,10 @@ class MainWindow(QMainWindow):
             self.processing_thread.start()
 
     def search_podcasts(self):
-        """Search for podcasts"""
         query = self.podcast_search.text().strip()
         if query:
+            self.podcast_progress.setVisible(True)
+            self.podcast_progress.setRange(0, 0)  # Indeterminate progress
             self.podcast_status.setText("Searching...")
             self.podcasts_list.clear()
             try:
@@ -660,7 +736,9 @@ class MainWindow(QMainWindow):
                     item.setData(Qt.ItemDataRole.UserRole, podcast)
                     self.podcasts_list.addItem(item)
                 self.podcast_status.clear()
+                self.podcast_progress.setVisible(False)
             except Exception as e:
+                self.podcast_progress.setVisible(False)
                 self.podcast_status.setText(f"Search failed: {str(e)}")
 
     def load_episodes(self, item):
@@ -741,7 +819,10 @@ class MainWindow(QMainWindow):
     def process_episode(self, episode):
         """Process podcast episode"""
         try:
+            self.podcast_progress.setVisible(True)
+            self.podcast_progress.setRange(0, 0)
             self.podcast_status.setText("Processing episode...")
+            
             self.processing_thread = ProcessingThread(
                 self.media_processor, episode, 'podcast')
             self.processing_thread.finished.connect(self.handle_processing_finished)
@@ -749,6 +830,7 @@ class MainWindow(QMainWindow):
             self.processing_thread.progress.connect(self.podcast_status.setText)
             self.processing_thread.start()
         except Exception as e:
+            self.podcast_progress.setVisible(False)
             self.podcast_status.setText(f"Error: {str(e)}")
 
     def handle_processing_finished(self, data):
@@ -759,10 +841,16 @@ class MainWindow(QMainWindow):
             self.load_due_cards()
             
             msg = f"Processing complete! Added {len(data['segments'])} segments for review."
-            if self.content_stack.currentIndex() == 1:  # YouTube view
+            
+            # Update UI based on current view
+            if self.content_stack.currentIndex() == 2:  # YouTube view
+                self.youtube_progress.setRange(0, 100)
+                self.youtube_progress.setValue(100)
                 self.youtube_status.setText(msg)
                 self.url_input.clear()
             else:  # Podcast view
+                self.podcast_progress.setRange(0, 100)
+                self.podcast_progress.setValue(100)
                 self.podcast_status.setText(msg)
                 
             QMessageBox.information(self, "Success", msg)
@@ -773,9 +861,11 @@ class MainWindow(QMainWindow):
 
     def handle_processing_error(self, error_msg):
         """Handle processing error"""
-        if self.content_stack.currentIndex() == 1:  # YouTube view
+        if self.content_stack.currentIndex() == 2:  # YouTube view
+            self.youtube_progress.setVisible(False)
             self.youtube_status.setText(f"Error: {error_msg}")
         else:  # Podcast view
+            self.podcast_progress.setVisible(False)
             self.podcast_status.setText(f"Error: {error_msg}")
             
         QMessageBox.critical(self, "Error", f"Processing failed: {error_msg}")
@@ -1017,6 +1107,11 @@ class MainWindow(QMainWindow):
         try:
             # End the review session
             self.review_system.end_session()
+            
+            # Clean up upload view workers
+            upload_view = self.content_stack.widget(1)  # Index 1 is Upload view
+            if isinstance(upload_view, UploadView):
+                upload_view.cleanup()
             
             # Clean up any playing audio
             for i in range(self.review_layout.count()):
