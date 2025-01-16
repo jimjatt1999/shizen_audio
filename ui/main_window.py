@@ -580,7 +580,7 @@ class MainWindow(QMainWindow):
         search_layout.addWidget(search_btn)
         layout.addLayout(search_layout)
 
-        # Progress section (same style as upload view)
+        # Progress section - Move it here, right after search
         progress_container = QWidget()
         progress_layout = QVBoxLayout(progress_container)
         progress_layout.setContentsMargins(0, 0, 0, 0)
@@ -671,7 +671,7 @@ class MainWindow(QMainWindow):
         episodes_scroll = QScrollArea()
         episodes_scroll.setWidget(self.episodes_list)
         episodes_scroll.setWidgetResizable(True)
-        episodes_scroll.setMinimumHeight(600)  # Add this line to make it taller
+        episodes_scroll.setMinimumHeight(500)  # Made taller
         episodes_scroll.setStyleSheet("""
             QScrollArea {
                 border: 1px solid #e5e7eb;
@@ -696,7 +696,6 @@ class MainWindow(QMainWindow):
         results_layout.addWidget(episodes_widget)
         layout.addLayout(results_layout)
 
-        layout.addStretch()
         return view
 
     def create_stats_view(self):
@@ -723,6 +722,7 @@ class MainWindow(QMainWindow):
             self.processing_thread.start()
 
     def search_podcasts(self):
+        """Search for podcasts"""
         query = self.podcast_search.text().strip()
         if query:
             self.podcast_progress.setVisible(True)
@@ -735,8 +735,9 @@ class MainWindow(QMainWindow):
                     item = QListWidgetItem(f"{podcast['title']}\n{podcast['author']}")
                     item.setData(Qt.ItemDataRole.UserRole, podcast)
                     self.podcasts_list.addItem(item)
-                self.podcast_status.clear()
-                self.podcast_progress.setVisible(False)
+                self.podcast_status.setText("Search complete")
+                self.podcast_progress.setRange(0, 100)
+                self.podcast_progress.setValue(100)
             except Exception as e:
                 self.podcast_progress.setVisible(False)
                 self.podcast_status.setText(f"Search failed: {str(e)}")
