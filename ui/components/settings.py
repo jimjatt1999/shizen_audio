@@ -121,7 +121,7 @@ class Settings(QWidget):
         
         # New cards per day setting
         self.new_cards_limit = QSpinBox()
-        self.new_cards_limit.setRange(1, 100)
+        self.new_cards_limit.setRange(1, 1000)
         self.new_cards_limit.setFixedHeight(36)
         self.new_cards_limit.setToolTip(
             "Maximum number of new cards you want to learn each day.\n"
@@ -141,7 +141,7 @@ class Settings(QWidget):
 
         # Cards per session setting
         self.cards_per_session = QSpinBox()
-        self.cards_per_session.setRange(1, 5)
+        self.cards_per_session.setRange(1, 20)
         self.cards_per_session.setFixedHeight(36)
         self.cards_per_session.setToolTip(
             "How many cards to show at once.\n"
